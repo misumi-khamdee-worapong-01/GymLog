@@ -1,0 +1,12 @@
+# virtual environment
+.venv/
+__pycache__/
+*.pyc
+
+# ฐานข้อมูลของผู้ใช้ (สร้างใหม่อัตโนมัติเมื่อรันแอป)
+gymlog.db
+test_gymlog.db
+
+# เครื่องมือ/เครื่องเฉพาะเครื่อง
+.claude/
+.DS_Store
