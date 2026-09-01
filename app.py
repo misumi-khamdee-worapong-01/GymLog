@@ -6,6 +6,7 @@ Single-file Flask app + Tailwind CSS (CDN) + SQLite
 รันด้วย:  python app.py   แล้วเปิด http://127.0.0.1:5000
 """
 
+import math
 import os
 import sqlite3
 from datetime import date, datetime, timedelta
@@ -14,6 +15,7 @@ from flask import (
     Flask, g, redirect, render_template, request, url_for, flash
 )
 from jinja2 import ChoiceLoader, DictLoader
+from markupsafe import Markup
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DB_PATH = os.path.join(BASE_DIR, "gymlog.db")
@@ -46,7 +48,8 @@ CREATE TABLE IF NOT EXISTS exercises (
     name         TEXT NOT NULL UNIQUE,
     muscle_group TEXT NOT NULL DEFAULT 'อื่น ๆ',
     equipment    TEXT DEFAULT '',
-    note         TEXT DEFAULT ''
+    note         TEXT DEFAULT '',
+    anim         TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS plans (
@@ -91,24 +94,24 @@ CREATE TABLE IF NOT EXISTS workout_sets (
 """
 
 SEED_EXERCISES = [
-    ("บาร์เบลสควอท", "ขา", "บาร์เบล", "ท่าหลักสำหรับขาและสะโพก"),
-    ("เดดลิฟท์", "หลัง", "บาร์เบล", "ระวังหลังล่าง เก็บแกนกลางให้แน่น"),
-    ("เบนช์เพรส", "อก", "บาร์เบล", "ท่าหลักสำหรับอก"),
-    ("โอเวอร์เฮดเพรส", "ไหล่", "บาร์เบล", ""),
-    ("บาร์เบลโรว์", "หลัง", "บาร์เบล", ""),
-    ("พูลอัพ", "หลัง", "บอดี้เวท", "นับน้ำหนักตัวเป็น 0 หรือใส่น้ำหนักถ่วง"),
-    ("ดิป", "อก", "บอดี้เวท", ""),
-    ("อินไคลน์ ดัมเบลเพรส", "อก", "ดัมเบล", ""),
-    ("แลตพูลดาวน์", "หลัง", "เคเบิล", ""),
-    ("ดัมเบลไซด์แลทเทอรัลเรส", "ไหล่", "ดัมเบล", ""),
-    ("ดัมเบลเคิร์ล", "แขน", "ดัมเบล", ""),
-    ("ไทรเซปส์ พุชดาวน์", "แขน", "เคเบิล", ""),
-    ("เลกเพรส", "ขา", "เครื่อง", ""),
-    ("โรมาเนียน เดดลิฟท์", "ขา", "บาร์เบล", "เน้นแฮมสตริง"),
-    ("ลันจ์", "ขา", "ดัมเบล", ""),
-    ("แพลงก์", "แกนกลาง", "บอดี้เวท", "บันทึกวินาทีในช่องจำนวนครั้ง"),
-    ("แฮงกิ้ง เลกเรส", "แกนกลาง", "บอดี้เวท", ""),
-    ("วิ่งลู่", "คาร์ดิโอ", "เครื่อง", "บันทึกนาทีในช่องจำนวนครั้ง"),
+    ("บาร์เบลสควอท", "ขา", "บาร์เบล", "ท่าหลักสำหรับขาและสะโพก", "squat"),
+    ("เดดลิฟท์", "หลัง", "บาร์เบล", "ระวังหลังล่าง เก็บแกนกลางให้แน่น", "hinge"),
+    ("เบนช์เพรส", "อก", "บาร์เบล", "ท่าหลักสำหรับอก", "bench"),
+    ("โอเวอร์เฮดเพรส", "ไหล่", "บาร์เบล", "", "ohp"),
+    ("บาร์เบลโรว์", "หลัง", "บาร์เบล", "", "row"),
+    ("พูลอัพ", "หลัง", "บอดี้เวท", "นับน้ำหนักตัวเป็น 0 หรือใส่น้ำหนักถ่วง", "pullup"),
+    ("ดิป", "อก", "บอดี้เวท", "", "dip"),
+    ("อินไคลน์ ดัมเบลเพรส", "อก", "ดัมเบล", "", "incline"),
+    ("แลตพูลดาวน์", "หลัง", "เคเบิล", "", "pulldown"),
+    ("ดัมเบลไซด์แลทเทอรัลเรส", "ไหล่", "ดัมเบล", "", "lateral"),
+    ("ดัมเบลเคิร์ล", "แขน", "ดัมเบล", "", "curl"),
+    ("ไทรเซปส์ พุชดาวน์", "แขน", "เคเบิล", "", "pushdown"),
+    ("เลกเพรส", "ขา", "เครื่อง", "", "legpress"),
+    ("โรมาเนียน เดดลิฟท์", "ขา", "บาร์เบล", "เน้นแฮมสตริง", "hinge"),
+    ("ลันจ์", "ขา", "ดัมเบล", "", "lunge"),
+    ("แพลงก์", "แกนกลาง", "บอดี้เวท", "บันทึกวินาทีในช่องจำนวนครั้ง", "plank"),
+    ("แฮงกิ้ง เลกเรส", "แกนกลาง", "บอดี้เวท", "", "legraise"),
+    ("วิ่งลู่", "คาร์ดิโอ", "เครื่อง", "บันทึกนาทีในช่องจำนวนครั้ง", "run"),
 ]
 
 SEED_PLANS = [
@@ -141,9 +144,15 @@ def init_db():
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
 
+    # ฐานข้อมูลที่สร้างไว้ก่อนมีภาพเคลื่อนไหว จะยังไม่มีคอลัมน์ anim
+    cols = [r["name"] for r in db.execute("PRAGMA table_info(exercises)")]
+    if "anim" not in cols:
+        db.execute("ALTER TABLE exercises ADD COLUMN anim TEXT NOT NULL DEFAULT ''")
+
     if db.execute("SELECT COUNT(*) c FROM exercises").fetchone()["c"] == 0:
         db.executemany(
-            "INSERT INTO exercises (name, muscle_group, equipment, note) VALUES (?,?,?,?)",
+            "INSERT INTO exercises (name, muscle_group, equipment, note, anim)"
+            " VALUES (?,?,?,?,?)",
             SEED_EXERCISES,
         )
 
@@ -166,6 +175,11 @@ def init_db():
                         " VALUES (?,?,?,?,?,?,?)",
                         (plan_id, row["id"], s, r, w, 90, i),
                     )
+
+    # เดาภาพเคลื่อนไหวให้ท่าที่ยังไม่ได้กำหนด
+    for row in db.execute("SELECT id, name, muscle_group FROM exercises WHERE anim = ''"):
+        db.execute("UPDATE exercises SET anim = ? WHERE id = ?",
+                   (guess_anim(row["name"], row["muscle_group"]), row["id"]))
     db.commit()
     db.close()
 
@@ -295,6 +309,7 @@ def dashboard():
 
 
 # --- คลังท่าออกกำลังกาย ---
+
 @app.route("/exercises")
 def exercises():
     db = get_db()
@@ -324,17 +339,30 @@ def exercise_add():
         return redirect(url_for("exercises"))
     db = get_db()
     try:
+        mg = request.form.get("muscle_group") or "อื่น ๆ"
+        key = request.form.get("anim", "")
         db.execute(
-            "INSERT INTO exercises (name, muscle_group, equipment, note) VALUES (?,?,?,?)",
-            (name, request.form.get("muscle_group") or "อื่น ๆ",
-             request.form.get("equipment", "").strip(),
-             request.form.get("note", "").strip()),
+            "INSERT INTO exercises (name, muscle_group, equipment, note, anim)"
+            " VALUES (?,?,?,?,?)",
+            (name, mg, request.form.get("equipment", "").strip(),
+             request.form.get("note", "").strip(),
+             key if key in ANIMS else guess_anim(name, mg)),
         )
         db.commit()
         flash("เพิ่มท่า \"%s\" เรียบร้อย" % name, "ok")
     except sqlite3.IntegrityError:
         flash("มีท่าชื่อนี้อยู่แล้ว", "error")
     return redirect(url_for("exercises"))
+
+
+@app.post("/exercises/<int:ex_id>/anim")
+def exercise_set_anim(ex_id):
+    key = request.form.get("anim", "")
+    if key in ANIMS:
+        db = get_db()
+        db.execute("UPDATE exercises SET anim = ? WHERE id = ?", (key, ex_id))
+        db.commit()
+    return redirect(request.form.get("next") or url_for("exercises"))
 
 
 @app.post("/exercises/<int:ex_id>/delete")
@@ -384,7 +412,7 @@ def plan_detail(plan_id):
         flash("ไม่พบแผนนี้", "error")
         return redirect(url_for("plans"))
     items = db.execute(
-        "SELECT i.*, e.name, e.muscle_group, e.equipment FROM plan_items i"
+        "SELECT i.*, e.name, e.muscle_group, e.equipment, e.anim FROM plan_items i"
         " JOIN exercises e ON e.id = i.exercise_id"
         " WHERE i.plan_id = ? ORDER BY i.order_no, i.id",
         (plan_id,),
@@ -510,7 +538,7 @@ def workout_detail(workout_id):
         return redirect(url_for("workouts"))
 
     rows = db.execute(
-        "SELECT s.*, e.name, e.muscle_group FROM workout_sets s"
+        "SELECT s.*, e.name, e.muscle_group, e.anim FROM workout_sets s"
         " JOIN exercises e ON e.id = s.exercise_id"
         " WHERE s.workout_id = ? ORDER BY s.id",
         (workout_id,),
@@ -520,7 +548,8 @@ def workout_detail(workout_id):
     for r in rows:
         if r["exercise_id"] not in groups:
             groups[r["exercise_id"]] = {"name": r["name"], "muscle_group": r["muscle_group"],
-                                        "sets": [], "volume": 0.0, "best": 0.0}
+                                        "anim": r["anim"], "sets": [], "volume": 0.0,
+                                        "best": 0.0}
             order.append(r["exercise_id"])
         g_ = groups[r["exercise_id"]]
         g_["sets"].append(r)
@@ -654,6 +683,330 @@ def progress():
                            history=list(reversed(history)), pr=pr, chart_max=chart_max)
 
 
+# ------------------------------------------------------------- animations --
+# ภาพเคลื่อนไหวของแต่ละท่าวาดเป็น SVG ในไฟล์นี้ทั้งหมด (ไม่ต้องโหลดรูปจากภายนอก)
+# แต่ละท่าประกอบด้วยท่าทาง 3 เฟรม แล้วสลับแสดงวนไปเรื่อย ๆ ด้วย CSS animation
+# ตำแหน่งข้อพับ (เข่า/ศอก) คำนวณด้วย inverse kinematics จากจุดสะโพก ปลายมือ และปลายเท้า
+
+LT, LS, LB = 17.0, 17.0, 25.0        # ความยาว ต้นขา / หน้าแข้ง / ลำตัว
+LU, LF, HR = 12.5, 12.5, 6.5         # ต้นแขน / ปลายแขน / รัศมีศีรษะ
+GROUND = 92.0                        # ระดับพื้น
+VIEW_W, VIEW_H = 120.0, 104.0
+
+
+def _p(pt, ang, length):
+    a = math.radians(ang)
+    return (pt[0] + length * math.cos(a), pt[1] + length * math.sin(a))
+
+
+def _ik(root, target, l1, l2, flip=1):
+    """หาตำแหน่งข้อพับให้ปลายแขน/ขาไปถึงเป้าหมาย คืนค่า (ข้อพับ, ปลาย)"""
+    dx, dy = target[0] - root[0], target[1] - root[1]
+    dist = math.hypot(dx, dy) or 0.001
+    ux, uy = dx / dist, dy / dist
+    reach = min(max(dist, abs(l1 - l2) + 0.8), l1 + l2 - 0.8)
+    end = target if abs(reach - dist) < 0.01 else (root[0] + ux * reach, root[1] + uy * reach)
+    a = (reach * reach + l1 * l1 - l2 * l2) / (2 * reach)
+    h = math.sqrt(max(l1 * l1 - a * a, 0.0))
+    joint = (root[0] + ux * a - uy * h * flip, root[1] + uy * a + ux * h * flip)
+    return joint, end
+
+
+def _seg(a, b, w=3.6):
+    return ('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke-width="%.1f"/>'
+            % (a[0], a[1], b[0], b[1], w))
+
+
+def _limb(root, joint, end, w=3.6):
+    return _seg(root, joint, w) + _seg(joint, end, w)
+
+
+def _gear(kind, pt, ang=0.0, r=8.4):
+    """อุปกรณ์ที่มือ/บ่า — มองจากด้านข้างจึงเห็นแผ่นน้ำหนักเป็นวงกลม"""
+    x, y = pt
+    if kind == "bar":
+        return ('<g class="eq"><line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke-width="2.4"/>'
+                '<circle cx="%.1f" cy="%.1f" r="%.1f" stroke-width="2.6" fill="none"/></g>'
+                % (x - r - 3.6, y, x + r + 3.6, y, x, y, r))
+    if kind == "db":
+        return ('<g class="eq"><rect x="%.1f" y="%.1f" width="12" height="5.4" rx="2.7"'
+                ' class="eqf"/></g>' % (x - 6, y - 2.7))
+    if kind == "handle":
+        return ('<g class="eq"><line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f"'
+                ' stroke-width="3.4"/></g>' % (x - 9, y, x + 9, y))
+    if kind == "platform":
+        dx, dy = math.cos(math.radians(ang + 90)) * 11, math.sin(math.radians(ang + 90)) * 11
+        return ('<g class="eq"><line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f"'
+                ' stroke-width="4"/></g>' % (x - dx, y - dy, x + dx, y + dy))
+    return ""
+
+
+def fig(hip, torso=-90.0, foot=None, hand=None, foot2=None, hand2=None,
+        knee=-1, knee2=-1, elbow=1, elbow2=1, ua=None, fa=None,
+        item=None, item2=None, neck_item=None, foot_item=None,
+        cable=None, sym=False):
+    """วาดสติกฟิกเกอร์หนึ่งท่าทาง โดยระบุจุดสะโพก มุมลำตัว และเป้าหมายของมือ/เท้า"""
+    neck = _p(hip, torso, LB)
+    head = _p(neck, torso, HR + 1.6)
+
+    if foot is None:
+        foot = (hip[0] + 2, GROUND)
+    if hand is None and ua is not None:
+        elbow_pt = _p(neck, ua, LU)
+        hand_pt = _p(elbow_pt, fa if fa is not None else ua, LF)
+    else:
+        if hand is None:
+            hand = (neck[0], neck[1] + LU + LF - 1)
+        elbow_pt, hand_pt = _ik(neck, hand, LU, LF, elbow)
+
+    knee_pt, foot_pt = _ik(hip, foot, LT, LS, knee)
+
+    far = []
+    if foot2 is not None:
+        k2, f2 = _ik(hip, foot2, LT, LS, knee2)
+        far.append(_limb(hip, k2, f2, 3.2))
+    if hand2 is not None:
+        e2, h2 = _ik(neck, hand2, LU, LF, elbow2)
+        far.append(_limb(neck, e2, h2, 3.2))
+        if item2:
+            far.append(_gear(item2, h2))
+
+    out = []
+    if neck_item:                      # บาร์บนบ่าอยู่หลังลำตัว จะได้ไม่บังศีรษะ
+        out.append(_gear(neck_item, (neck[0] - 5, neck[1] + 7), r=7.2))
+    if far:
+        out.append('<g class="%s">%s</g>' % ("b" if sym else "b dim", "".join(far)))
+    out.append('<g class="b">')
+    out.append(_limb(hip, knee_pt, foot_pt))
+    out.append(_seg(hip, neck))
+    out.append(_limb(neck, elbow_pt, hand_pt))
+    out.append('<circle cx="%.1f" cy="%.1f" r="%.1f" class="head"/>' % (head[0], head[1], HR))
+    out.append("</g>")
+
+    if cable:
+        out.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" class="cable"/>'
+                   % (hand_pt[0], hand_pt[1], cable[0], cable[1]))
+    if item:
+        out.append(_gear(item, hand_pt))
+    if foot_item:
+        ang = math.degrees(math.atan2(foot_pt[1] - hip[1], foot_pt[0] - hip[0]))
+        out.append(_gear(foot_item, foot_pt, ang))
+    return "".join(out)
+
+
+# --- ฉากหลัง (วาดครั้งเดียว ไม่กะพริบตามเฟรม) ---
+FLOOR = '<line x1="6" y1="92" x2="114" y2="92" class="ground"/>'
+
+SC_BENCH = FLOOR + ('<rect x="26" y="70" width="62" height="6" rx="2" class="gearf"/>'
+                    '<line x1="34" y1="76" x2="31" y2="92" class="gear"/>'
+                    '<line x1="80" y1="76" x2="83" y2="92" class="gear"/>')
+
+SC_INCLINE = FLOOR + ('<line x1="80" y1="86" x2="46" y2="61" class="gear" stroke-width="5"/>'
+                      '<line x1="80" y1="86" x2="96" y2="86" class="gear" stroke-width="5"/>'
+                      '<line x1="86" y1="88" x2="86" y2="92" class="gear"/>'
+                      '<line x1="52" y1="66" x2="50" y2="92" class="gear"/>')
+
+SC_BAR_HIGH = ('<line x1="20" y1="16" x2="100" y2="16" class="gear"/>'
+               '<line x1="24" y1="16" x2="24" y2="4" class="gear"/>'
+               '<line x1="96" y1="16" x2="96" y2="4" class="gear"/>')
+
+SC_DIP = ('<line x1="30" y1="54" x2="92" y2="54" class="gear"/>'
+          '<line x1="36" y1="54" x2="36" y2="102" class="gear"/>'
+          '<line x1="86" y1="54" x2="86" y2="102" class="gear"/>')
+
+SC_PULLDOWN = (FLOOR + '<line x1="30" y1="5" x2="82" y2="5" class="gear"/>'
+               '<circle cx="56" cy="9" r="3.4" class="gear" fill="none"/>'
+               '<rect x="34" y="68" width="32" height="6" rx="2" class="gearf"/>'
+               '<line x1="40" y1="74" x2="40" y2="92" class="gear"/>'
+               '<line x1="60" y1="74" x2="60" y2="92" class="gear"/>')
+
+SC_CABLE = (FLOOR + '<line x1="42" y1="5" x2="92" y2="5" class="gear"/>'
+            '<circle cx="66" cy="9" r="3.4" class="gear" fill="none"/>')
+
+SC_LEGPRESS = (FLOOR + '<line x1="58" y1="82" x2="22" y2="62" class="gear" stroke-width="5"/>'
+               '<line x1="58" y1="82" x2="74" y2="82" class="gear" stroke-width="5"/>'
+               '<line x1="30" y1="68" x2="28" y2="92" class="gear"/>'
+               '<line x1="66" y1="84" x2="66" y2="92" class="gear"/>')
+
+SC_TREADMILL = ('<rect x="24" y="88" width="74" height="6" rx="3" class="gearf"/>'
+                '<line x1="94" y1="88" x2="99" y2="54" class="gear"/>'
+                '<line x1="88" y1="54" x2="108" y2="54" class="gear"/>')
+
+
+ANIMS = {
+    "squat": {
+        "label": "สควอท / ย่อเข่า", "scene": FLOOR, "frames": [
+            dict(hip=(54, 57), torso=-88, foot=(56, 92), hand=(45, 36), neck_item="bar"),
+            dict(hip=(50, 68), torso=-70, foot=(56, 92), hand=(48, 48), neck_item="bar"),
+            dict(hip=(46, 76), torso=-60, foot=(56, 92), hand=(48, 58), neck_item="bar"),
+        ]},
+    "hinge": {
+        "label": "เดดลิฟท์ / ก้มยกจากพื้น", "scene": FLOOR, "frames": [
+            dict(hip=(44, 70), torso=-28, foot=(52, 92), hand=(64, 83), item="bar"),
+            dict(hip=(46, 64), torso=-52, foot=(52, 92), hand=(60, 69), item="bar"),
+            dict(hip=(52, 57), torso=-88, foot=(52, 92), hand=(53, 57), item="bar"),
+        ]},
+    "bench": {
+        "label": "นอนดันบนม้านั่ง", "scene": SC_BENCH, "frames": [
+            dict(hip=(70, 68), torso=182, foot=(90, 92), hand=(53, 42), knee=1, item="bar"),
+            dict(hip=(70, 68), torso=182, foot=(90, 92), hand=(54, 51), knee=1, item="bar"),
+            dict(hip=(70, 68), torso=182, foot=(90, 92), hand=(55, 59), knee=1, item="bar"),
+        ]},
+    "incline": {
+        "label": "ดันบนเบาะเอียง", "scene": SC_INCLINE, "frames": [
+            dict(hip=(74, 82), torso=215, foot=(96, 92), hand=(60, 44), knee=1, item="db"),
+            dict(hip=(74, 82), torso=215, foot=(96, 92), hand=(57, 52), knee=1, item="db"),
+            dict(hip=(74, 82), torso=215, foot=(96, 92), hand=(56, 58), knee=1, item="db"),
+        ]},
+    "ohp": {
+        "label": "ดันขึ้นเหนือศีรษะ", "scene": FLOOR, "frames": [
+            dict(hip=(54, 57), torso=-90, hand=(66, 37), item="bar"),
+            dict(hip=(54, 57), torso=-90, hand=(58, 22), item="bar"),
+            dict(hip=(54, 57), torso=-90, hand=(55, 12), item="bar"),
+        ]},
+    "row": {
+        "label": "ก้มดึงเข้าลำตัว", "scene": FLOOR, "frames": [
+            dict(hip=(44, 64), torso=-24, foot=(52, 92), hand=(66, 78), item="bar"),
+            dict(hip=(44, 64), torso=-24, foot=(52, 92), hand=(60, 72), item="bar"),
+            dict(hip=(44, 64), torso=-24, foot=(52, 92), hand=(54, 66), item="bar"),
+        ]},
+    "pullup": {
+        "label": "ดึงข้อ / โหนบาร์", "scene": SC_BAR_HIGH, "frames": [
+            dict(hip=(52, 64), torso=-90, foot=(48, 97), hand=(52, 17)),
+            dict(hip=(52, 56), torso=-90, foot=(48, 89), hand=(52, 17)),
+            dict(hip=(52, 49), torso=-90, foot=(48, 82), hand=(52, 17)),
+        ]},
+    "dip": {
+        "label": "ดิป / ดันตัวบนบาร์คู่", "scene": SC_DIP, "frames": [
+            dict(hip=(58, 56), torso=-90, foot=(42, 74), hand=(58, 54)),
+            dict(hip=(58, 64), torso=-90, foot=(42, 82), hand=(58, 54)),
+            dict(hip=(58, 70), torso=-90, foot=(42, 88), hand=(58, 54)),
+        ]},
+    "pulldown": {
+        "label": "ดึงบาร์ลงจากด้านบน", "scene": SC_PULLDOWN, "frames": [
+            dict(hip=(50, 66), torso=-98, foot=(66, 92), hand=(56, 20),
+                 item="handle", cable=(56, 9)),
+            dict(hip=(50, 66), torso=-98, foot=(66, 92), hand=(56, 31),
+                 item="handle", cable=(56, 9)),
+            dict(hip=(50, 66), torso=-98, foot=(66, 92), hand=(56, 41),
+                 item="handle", cable=(56, 9)),
+        ]},
+    "lateral": {
+        "label": "กางแขนออกด้านข้าง", "scene": FLOOR, "frames": [
+            dict(hip=(60, 58), torso=-90, foot=(54, 92), foot2=(66, 92), sym=True,
+                 hand=(74, 54), hand2=(46, 54), item="db", item2="db", elbow=-1, elbow2=1),
+            dict(hip=(60, 58), torso=-90, foot=(54, 92), foot2=(66, 92), sym=True,
+                 hand=(80, 44), hand2=(40, 44), item="db", item2="db", elbow=-1, elbow2=1),
+            dict(hip=(60, 58), torso=-90, foot=(54, 92), foot2=(66, 92), sym=True,
+                 hand=(84, 34), hand2=(36, 34), item="db", item2="db", elbow=-1, elbow2=1),
+        ]},
+    "curl": {
+        "label": "งอศอกยกขึ้น (เคิร์ล)", "scene": FLOOR, "frames": [
+            dict(hip=(54, 57), torso=-90, ua=93, fa=88, item="db"),
+            dict(hip=(54, 57), torso=-90, ua=95, fa=25, item="db"),
+            dict(hip=(54, 57), torso=-90, ua=98, fa=-38, item="db"),
+        ]},
+    "pushdown": {
+        "label": "เหยียดศอกกดลง", "scene": SC_CABLE, "frames": [
+            dict(hip=(54, 57), torso=-86, ua=72, fa=-52, item="handle", cable=(66, 9)),
+            dict(hip=(54, 57), torso=-86, ua=76, fa=20, item="handle", cable=(66, 9)),
+            dict(hip=(54, 57), torso=-86, ua=80, fa=72, item="handle", cable=(66, 9)),
+        ]},
+    "legpress": {
+        "label": "ดันน้ำหนักด้วยขา", "scene": SC_LEGPRESS, "frames": [
+            dict(hip=(48, 76), torso=205, foot=(60, 64), hand=(32, 86), knee=1,
+                 foot_item="platform"),
+            dict(hip=(48, 76), torso=205, foot=(66, 58), hand=(32, 86), knee=1,
+                 foot_item="platform"),
+            dict(hip=(48, 76), torso=205, foot=(72, 52), hand=(32, 86), knee=1,
+                 foot_item="platform"),
+        ]},
+    "lunge": {
+        "label": "ลันจ์ / ก้าวย่อขา", "scene": FLOOR, "frames": [
+            dict(hip=(54, 58), torso=-88, foot=(65, 92), foot2=(43, 92), ua=92, fa=90,
+                 item="db", knee2=-1),
+            dict(hip=(54, 67), torso=-88, foot=(65, 92), foot2=(43, 92), ua=92, fa=90,
+                 item="db", knee2=-1),
+            dict(hip=(54, 75), torso=-88, foot=(65, 92), foot2=(43, 92), ua=92, fa=90,
+                 item="db", knee2=-1),
+        ]},
+    "plank": {
+        "label": "แพลงก์ / เกร็งค้าง", "scene": FLOOR, "frames": [
+            dict(hip=(62, 79), torso=172, foot=(94, 90), hand=(48, 88), knee=1, elbow=-1),
+            dict(hip=(62, 81), torso=172, foot=(94, 90), hand=(48, 88), knee=1, elbow=-1),
+            dict(hip=(62, 80), torso=172, foot=(94, 90), hand=(48, 88), knee=1, elbow=-1),
+        ]},
+    "legraise": {
+        "label": "โหนบาร์ยกขา", "scene": SC_BAR_HIGH, "frames": [
+            dict(hip=(52, 64), torso=-90, foot=(50, 96), hand=(52, 17)),
+            dict(hip=(52, 64), torso=-90, foot=(70, 82), hand=(52, 17), knee=1),
+            dict(hip=(52, 64), torso=-90, foot=(82, 64), hand=(52, 17), knee=1),
+        ]},
+    "run": {
+        "label": "วิ่ง / คาร์ดิโอ", "scene": SC_TREADMILL, "frames": [
+            dict(hip=(56, 58), torso=-84, foot=(70, 88), foot2=(44, 84), sym=True,
+                 hand=(64, 46), hand2=(48, 62), knee2=1),
+            dict(hip=(56, 55), torso=-84, foot=(62, 90), foot2=(52, 76), sym=True,
+                 hand=(60, 52), hand2=(52, 56), knee2=1),
+            dict(hip=(56, 58), torso=-84, foot=(44, 88), foot2=(70, 84), sym=True,
+                 hand=(48, 50), hand2=(66, 58), knee2=1),
+        ]},
+}
+
+ANIM_LIST = [(k, v["label"]) for k, v in ANIMS.items()]
+
+# คำในชื่อท่า -> ภาพเคลื่อนไหว (ตรวจตามลำดับ คำที่เจาะจงกว่าต้องมาก่อน)
+ANIM_KEYWORDS = [
+    ("เลกเพรส", "legpress"), ("leg press", "legpress"),
+    ("เลกเรส", "legraise"), ("ยกขา", "legraise"), ("leg raise", "legraise"),
+    ("สควอท", "squat"), ("squat", "squat"),
+    ("เดดลิฟท์", "hinge"), ("deadlift", "hinge"), ("กู๊ดมอร์นิ่ง", "hinge"),
+    ("อินไคลน์", "incline"), ("incline", "incline"),
+    ("เบนช์", "bench"), ("bench", "bench"), ("นอนดัน", "bench"),
+    ("โอเวอร์เฮด", "ohp"), ("overhead", "ohp"), ("ไหล่เพรส", "ohp"), ("shoulder press", "ohp"),
+    ("โรว์", "row"), ("row", "row"),
+    ("พูลอัพ", "pullup"), ("pull up", "pullup"), ("pull-up", "pullup"), ("ชินอัพ", "pullup"),
+    ("ดิป", "dip"), ("dip", "dip"),
+    ("พูลดาวน์", "pulldown"), ("แลตพูล", "pulldown"), ("lat pull", "pulldown"),
+    ("แลทเทอรัล", "lateral"), ("ไซด์", "lateral"), ("lateral", "lateral"), ("กางแขน", "lateral"),
+    ("เคิร์ล", "curl"), ("curl", "curl"),
+    ("พุชดาวน์", "pushdown"), ("pushdown", "pushdown"), ("ไทรเซปส์", "pushdown"),
+    ("ลันจ์", "lunge"), ("lunge", "lunge"), ("สเต็ปอัพ", "lunge"),
+    ("แพลงก์", "plank"), ("plank", "plank"), ("แกนกลาง", "plank"),
+    ("วิ่ง", "run"), ("run", "run"), ("ปั่น", "run"), ("คาร์ดิโอ", "run"),
+    ("เพรส", "bench"), ("press", "bench"), ("ดัน", "bench"),
+    ("ดึง", "row"), ("pull", "row"),
+]
+
+MG_ANIM = {"อก": "bench", "หลัง": "row", "ขา": "squat", "ไหล่": "ohp",
+           "แขน": "curl", "แกนกลาง": "plank", "คาร์ดิโอ": "run"}
+
+
+def guess_anim(name, muscle_group=""):
+    """เดาภาพเคลื่อนไหวที่เหมาะสมจากชื่อท่า ถ้าไม่เจอจึงใช้ตามกลุ่มกล้ามเนื้อ"""
+    low = (name or "").lower()
+    for word, key in ANIM_KEYWORDS:
+        if word in low:
+            return key
+    return MG_ANIM.get(muscle_group, "squat")
+
+
+def anim(key, size=56, name="", muscle_group=""):
+    """คืน SVG ภาพเคลื่อนไหวพร้อมใช้งานในเทมเพลต"""
+    if key not in ANIMS:
+        key = guess_anim(name or key, muscle_group)
+    data = ANIMS[key]
+    frames = "".join(
+        '<g class="k%d">%s</g>' % (i + 1, fig(**f)) for i, f in enumerate(data["frames"])
+    )
+    height = int(round(size * VIEW_H / VIEW_W))
+    return Markup(
+        '<svg class="anim" width="%d" height="%d" viewBox="0 0 %g %g" role="img"'
+        ' aria-label="ภาพเคลื่อนไหวท่า %s">%s%s</svg>'
+        % (size, height, VIEW_W, VIEW_H, data["label"], data["scene"], frames)
+    )
+
+
 # --------------------------------------------------------------- templates --
 LAYOUT = """
 <!doctype html>
@@ -681,6 +1034,32 @@ tailwind.config = {
   input[type=number]::-webkit-outer-spin-button,
   input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   input[type=number] { -moz-appearance: textfield; }
+
+  /* ภาพเคลื่อนไหวของท่าออกกำลังกาย — สลับ 3 เฟรมแบบ flipbook */
+  .anim { display: block; flex: none; }
+  .anim .b { fill: none; stroke: #e2e8f0; stroke-linecap: round; stroke-linejoin: round; }
+  .anim .dim { stroke: #64748b; }
+  .anim .head { fill: #e2e8f0; stroke: none; }
+  .anim .eq { stroke: #f59e0b; fill: none; stroke-linecap: round; }
+  .anim .eqf { fill: #f59e0b; stroke: none; }
+  .anim .cable { stroke: #94a3b8; stroke-width: 1.6; }
+  .anim .ground { stroke: #475569; stroke-width: 2.6; stroke-linecap: round; }
+  .anim .gear { stroke: #475569; stroke-width: 3; fill: none; stroke-linecap: round; }
+  .anim .gearf { fill: #334155; stroke: none; }
+
+  @keyframes gymFrame1 { 0%, 24% { opacity: 1 } 25%, 100% { opacity: 0 } }
+  @keyframes gymFrame2 { 0%, 24% { opacity: 0 } 25%, 49% { opacity: 1 }
+                         50%, 74% { opacity: 0 } 75%, 100% { opacity: 1 } }
+  @keyframes gymFrame3 { 0%, 49% { opacity: 0 } 50%, 74% { opacity: 1 }
+                         75%, 100% { opacity: 0 } }
+  .anim .k1 { animation: gymFrame1 1.9s infinite; }
+  .anim .k2 { animation: gymFrame2 1.9s infinite; }
+  .anim .k3 { animation: gymFrame3 1.9s infinite; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .anim .k1, .anim .k2, .anim .k3 { animation: none; }
+    .anim .k2, .anim .k3 { opacity: 0; }
+  }
 </style>
 </head>
 <body class="h-full bg-slate-950 text-slate-100 font-sans">
@@ -891,6 +1270,14 @@ EXERCISES = """
         </select>
       </div>
       <div>
+        <label class="text-xs text-slate-400">ภาพเคลื่อนไหว</label>
+        <select name="anim"
+                class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
+          <option value="">เลือกอัตโนมัติจากชื่อท่า</option>
+          {% for key, label in ANIM_LIST %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
         <label class="text-xs text-slate-400">อุปกรณ์</label>
         <input name="equipment" placeholder="บาร์เบล / ดัมเบล / เครื่อง"
                class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none">
@@ -923,7 +1310,7 @@ EXERCISES = """
       <table class="w-full text-sm">
         <thead class="text-left text-xs uppercase text-slate-500">
           <tr class="border-b border-slate-800">
-            <th class="py-2">ท่า</th><th>กลุ่ม</th><th>อุปกรณ์</th>
+            <th class="py-2">ท่า</th><th>กลุ่ม</th><th>ภาพเคลื่อนไหว</th>
             <th class="text-right">ใช้แล้ว</th><th></th>
           </tr>
         </thead>
@@ -931,13 +1318,29 @@ EXERCISES = """
           {% for e in items %}
             <tr class="hover:bg-slate-950/60">
               <td class="py-2.5 pr-3">
-                <div class="font-medium">{{ e.name }}</div>
-                {% if e.note %}<div class="text-xs text-slate-500">{{ e.note }}</div>{% endif %}
+                <div class="flex items-center gap-3">
+                  {{ anim(e.anim, 62, e.name, e.muscle_group) }}
+                  <div class="min-w-0">
+                    <div class="font-medium">{{ e.name }}</div>
+                    <div class="text-xs text-slate-500">{{ e.equipment or 'ไม่ระบุอุปกรณ์' }}</div>
+                    {% if e.note %}<div class="text-xs text-slate-500">{{ e.note }}</div>{% endif %}
+                  </div>
+                </div>
               </td>
               <td class="pr-3">
                 <span class="rounded-full bg-slate-800 px-2 py-0.5 text-xs">{{ e.muscle_group }}</span>
               </td>
-              <td class="pr-3 text-slate-400">{{ e.equipment or '-' }}</td>
+              <td class="pr-3">
+                <form method="post" action="{{ url_for('exercise_set_anim', ex_id=e.id) }}">
+                  <input type="hidden" name="next" value="{{ request.full_path }}">
+                  <select name="anim" onchange="this.form.submit()"
+                          class="w-36 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs">
+                    {% for key, label in ANIM_LIST %}
+                      <option value="{{ key }}" {{ 'selected' if e.anim == key }}>{{ label }}</option>
+                    {% endfor %}
+                  </select>
+                </form>
+              </td>
               <td class="pr-3 text-right text-slate-400">{{ e.used }} เซ็ต</td>
               <td class="text-right">
                 <form method="post" action="{{ url_for('exercise_delete', ex_id=e.id) }}"
@@ -1082,8 +1485,13 @@ PLAN_DETAIL = """
           <tr>
             <td class="py-2.5 text-slate-500">{{ loop.index }}</td>
             <td class="pr-3">
-              <div class="font-medium">{{ i.name }}</div>
-              <div class="text-xs text-slate-500">{{ i.muscle_group }}{% if i.equipment %} · {{ i.equipment }}{% endif %}</div>
+              <div class="flex items-center gap-2.5">
+                {{ anim(i.anim, 50, i.name, i.muscle_group) }}
+                <div>
+                  <div class="font-medium">{{ i.name }}</div>
+                  <div class="text-xs text-slate-500">{{ i.muscle_group }}{% if i.equipment %} · {{ i.equipment }}{% endif %}</div>
+                </div>
+              </div>
             </td>
             <td class="text-center">{{ i.target_sets }}</td>
             <td class="text-center">{{ i.target_reps }}</td>
@@ -1244,9 +1652,12 @@ WORKOUT_DETAIL = """
   {% for b in blocks %}
     <div class="rounded-2xl border border-slate-800 bg-slate-900 p-5">
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 class="font-semibold">{{ b.name }}</h2>
-          <span class="text-xs text-slate-500">{{ b.muscle_group }}</span>
+        <div class="flex items-center gap-3">
+          {{ anim(b.anim, 78, b.name, b.muscle_group) }}
+          <div>
+            <h2 class="font-semibold">{{ b.name }}</h2>
+            <span class="text-xs text-slate-500">{{ b.muscle_group }}</span>
+          </div>
         </div>
         <div class="text-right text-xs text-slate-500">
           ปริมาณ <span class="font-semibold text-brand-400">{{ '{:,.0f}'.format(b.volume) }}</span> กก.
@@ -1360,7 +1771,13 @@ PROGRESS = """
   </div>
 
   <div class="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
-    <h2 class="font-semibold">ปริมาณต่อเซสชัน — {{ ex.name }}</h2>
+    <div class="flex items-center gap-4">
+      {{ anim(ex.anim, 104, ex.name, ex.muscle_group) }}
+      <div>
+        <h2 class="font-semibold">ปริมาณต่อเซสชัน — {{ ex.name }}</h2>
+        <p class="text-xs text-slate-500">{{ ex.muscle_group }}{% if ex.equipment %} · {{ ex.equipment }}{% endif %}</p>
+      </div>
+    </div>
     <div class="mt-5 flex h-44 items-end gap-2">
       {% for h in history %}
         <div class="group flex flex-1 flex-col items-center justify-end gap-1">
@@ -1411,6 +1828,9 @@ PROGRESS = """
 {% endif %}
 {% endblock %}
 """
+
+app.jinja_env.globals["anim"] = anim
+app.jinja_env.globals["ANIM_LIST"] = ANIM_LIST
 
 app.jinja_loader = ChoiceLoader([
     DictLoader({
